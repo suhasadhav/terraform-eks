@@ -1,14 +1,15 @@
 module "lb-controller" {
-  source  = "basisai/lb-controller/aws"
+  source                  = "basisai/lb-controller/aws"
   cluster_name            = module.eks.cluster_name
   cluster_oidc_issuer_url = module.eks.cluster_oidc_issuer_url
   iam_role_path           = null
-  depends_on = [ module.eks ]
+  depends_on              = [module.eks]
 }
 
 
 resource "helm_release" "nginx" {
-  name             = "nginx"
+  count            = 2
+  name             = "nginx${count.index}"
   repository       = "https://charts.bitnami.com/bitnami"
   chart            = "nginx"
   namespace        = "nginx"
@@ -19,17 +20,6 @@ resource "helm_release" "nginx" {
   depends_on = [module.lb-controller]
 }
 
-resource "helm_release" "nginx2" {
-  name             = "nginx2"
-  repository       = "https://charts.bitnami.com/bitnami"
-  chart            = "nginx"
-  namespace        = "nginx"
-  create_namespace = true
-  values = [
-    file("${path.module}/files/nginx-values.yaml")
-  ]
-  depends_on = [module.lb-controller]
-}
 
 resource "kubernetes_manifest" "networkpolicy" {
   manifest = yamldecode(<<-EOF
@@ -46,6 +36,7 @@ resource "kubernetes_manifest" "networkpolicy" {
         - podSelector: {}
     EOF
   )
+  depends_on = [helm_release.nginx]
 }
 
 resource "kubernetes_manifest" "ingress" {
@@ -71,7 +62,7 @@ resource "kubernetes_manifest" "ingress" {
                 pathType: Prefix
                 backend:
                   service:
-                    name: nginx
+                    name: nginx1
                     port:
                       number: 80
               - path: /service2
@@ -83,15 +74,17 @@ resource "kubernetes_manifest" "ingress" {
                       number: 80
     EOF
   )
+  depends_on = [helm_release.nginx]
 }
 
-resource "kubernetes_manifest" "ingress" {
+resource "kubernetes_manifest" "tgb" {
+  count = 2
   manifest = yamldecode(<<-EOF
     apiVersion: elbv2.k8s.aws/v1beta1
     kind: TargetGroupBinding
     metadata:
       name: nginx1
-      namespace: nginx
+      namespace: nginx${count.index}
     spec:
       ipAddressType: ipv4
       networking:
@@ -103,34 +96,9 @@ resource "kubernetes_manifest" "ingress" {
       serviceRef:
         name: nginx
         port: 80
-      targetGroupARN: "${aws_lb_target_group.tg[0].arn}"
+      targetGroupARN: "${aws_lb_target_group.tg[count.index].arn}"
       targetType: ip
     EOF
   )
+  depends_on = [helm_release.nginx]
 }
-
-resource "kubernetes_manifest" "ingress" {
-  manifest = yamldecode(<<-EOF
-    apiVersion: elbv2.k8s.aws/v1beta1
-    kind: TargetGroupBinding
-    metadata:
-      name: nginx2
-      namespace: nginx
-    spec:
-      ipAddressType: ipv4
-      networking:
-        ingress:
-        - from:
-          ports:
-          - port: 80
-            protocol: TCP
-      serviceRef:
-        name: nginx2
-        port: 80
-      targetGroupARN: "${aws_lb_target_group.tg[1].arn}"
-      targetType: ip
-    EOF
-  )
-}
-
-

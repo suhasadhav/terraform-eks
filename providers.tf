@@ -9,7 +9,7 @@ terraform {
 
 # Configure the AWS Provider
 provider "aws" {
-  region     = var.region_name
+  region = var.region_name
 }
 
 provider "helm" {
@@ -26,5 +26,5 @@ provider "helm" {
 }
 
 provider "kubernetes" {
-  config_path    = "./kubeconfig"
+  config_path = "./kubeconfig"
 }
